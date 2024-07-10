@@ -1,0 +1,350 @@
+openapi: 3.1.0
+info:
+  version: v1
+  title: TheForum API for moderators
+  description: |-
+    This is a specification for an API to be used by forum moderators to be used with Swagger (http://swagger.io)
+  contact:
+    name: Max Kuzmin
+    url: https://github.com/maximkuzmin
+    email: mail@maximkuzmin.rocks
+servers:
+  - url: "https://theforum.com/api/v1/moderator"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Post:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "2cf14949-0fe5-40da-96cb-9c8fa8c12998"
+          description: "UUID of a post"
+        title:
+          type: string
+          example: "Let's talk about birds and bees"
+        content:
+          type: string
+          description: "Post content in markdown format"
+          example: "#Bees and birds are nature dearest creatures\nLet's talk about this!"
+        author_id:
+          $ref: "#/components/schemas/User/properties/id"
+        created_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, approved, disapproved]
+        thread_id:
+          type: string
+          example: "e0cdd909-6fa1-4e74-a36d-78a7acdd6eba"
+          description: "UUID of a thread, where post was created, could be used for building a full url to the post in a thread"
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "dd252e22-1b56-41a9-a79b-fcf9f72fb6b0"
+          description: "UUID of a user"
+        username:
+          type: string
+        email:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        has_active_violations:
+          type: boolean
+          example: false
+    Violation:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "b558cde9-52aa-471d-b72d-855eeafec713"
+        user_id:
+          $ref: "#/components/schemas/User/properties/id"
+        post_id:
+          $ref: "#/components/schemas/Violation/properties/id"
+        severity:
+          description: "How severe is violation. According to the selected value, user will be warned(minor), muted for a day(middle), week(major) or banned indefinitely(fatal)"
+          type: string
+          enum:
+            - minor
+            - middle
+            - major
+            - fatal
+        description:
+          type: string
+          example: "Inappropriate content"
+        created_at:
+          type: string
+          format: date-time
+    OrderDirection:
+      type: string
+      enum: [asc, desc]
+      default: asc
+    PaginatedResponse:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+          default: 1
+        page_size:
+          type: integer
+          example: 20
+          default: 20
+        total_pages:
+          type: integer
+          example: 10
+        items:
+          type: array
+          items:
+            type: object
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: posts
+    description: Posts interaction
+
+  - name: users
+    description: Users interaction
+paths:
+  /posts:
+    get:
+      tags:
+        - posts
+      summary: Get (oldest pending by default) posts
+      description: Retrieve posts with rich filtering and ordering options. By default, oldest pending posts are shown. Could also be used for retrieval of user's post by providing `author_id` parameter
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: fulltext_search
+          in: query
+          description: Filter posts using fulltext index search engine
+          required: false
+          schema:
+            type: string
+        - name: order
+          in: query
+          description: Order posts by specified field
+          required: false
+          schema:
+            default: created_at
+            type: string
+            enum: [title, created_at, status]
+        - name: direction
+          in: query
+          description: Order direction
+          required: false
+          schema:
+            $ref: "#/components/schemas/OrderDirection"
+        - name: status
+          description: Desired status of posts
+          in: query
+          required: false
+          schema:
+            type: array
+            default: [pending]
+            items:
+              $ref: "#/components/schemas/Post/properties/status"
+        - name: author_id
+          description: Filter posts by an author id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/User/properties/id"
+        - name: page
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/PaginatedResponse/properties/page"
+
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/PaginatedResponse/properties/page_size"
+
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedResponse"
+                  - properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Post"
+  /posts/{post_id}/approvals:
+    post:
+      tags:
+        - posts
+      summary: Approve a post
+      description: Approve a post by its ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Post/properties/id"
+      responses:
+        "200":
+          description: Post approved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Post"
+                  - properties:
+                      status:
+                        example: "approved"
+    delete:
+      tags:
+        - posts
+      summary: Revoke post approval
+      description: Revoke approval and return post to pending status
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Post/properties/id"
+      responses:
+        "200":
+          description: Post approval revoked successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Post"
+                  - properties:
+                      status:
+                        example: "pending"
+  /users/{user_id}:
+    get:
+      tags:
+        - users
+      summary: Get a post's author user profile
+      description: Retrieve profile of a user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /violations:
+    get:
+      tags:
+        - violations
+      summary: Get violations
+      description: Retrieve violations with some filtering available
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: post_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Post/properties/id"
+        - name: user_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/User/properties/id"
+        - name: severity
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Violation/properties/severity"
+        - name: fulltext_search
+          in: query
+          description: Filter posts using fulltext index search engine
+          required: false
+          schema:
+            type: string
+        - name: order
+          in: query
+          description: Order violations by specified field
+          required: false
+          schema:
+            default: created_at
+            type: string
+            enum: [created_at, severity]
+        - name: direction
+          in: query
+          description: Order direction
+          required: false
+          schema:
+            $ref: "#/components/schemas/OrderDirection"
+        - name: page
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/PaginatedResponse/properties/page"
+
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/PaginatedResponse/properties/page_size"
+
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedResponse"
+                  - properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Violation"
+  /violations/{violation_id}:
+    delete:
+      tags:
+        - violations
+      summary: Revoke a violation
+      description: Revoke a violation by its ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: violation_id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Violation/properties/id"
+
+      responses:
+        "200":
+          description: Violation revoked successfully
